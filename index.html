@@ -725,6 +725,10 @@
     .album-foot { padding: 10px 14px; font-size: 11px; }
     .lightbox { padding: 40px 14px 18px; }
     .lightbox-img { max-width: 96vw; max-height: 66vh; }
+
+    /* 首页底栏：整体往下压，和上方的书脊拉开距离，横向滑动时不容易蹭到书 */
+    .stage { padding-bottom: 14px; }
+    .footbar { margin-top: clamp(36px, 7vh, 68px); }
   }
 
   /* 触屏设备没有悬停：禁用「鼠标划过书脊」的位移，避免点完一本书后书架歪着不走 */
