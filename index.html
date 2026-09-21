@@ -694,11 +694,44 @@
     text-align: center;
   }
 
-  /* 窄屏：相册改为上下堆叠，扇形占满宽度，避免卡片被压得过小 */
+  /* 窄屏（手机）：相册改为「照片在上、文字在下」的上下堆叠，翻动交给触屏左右滑动 */
   @media (max-width: 760px) {
-    .album-body { flex-direction: column; gap: 16px; }
-    .fan-area { flex: 1 1 auto; }
-    .text-area { flex: 0 0 auto; }
+    .album-overlay { padding: 10px; }
+    .album-panel { width: 100%; max-height: 94vh; }
+    .album-head { padding: 14px 16px 10px; gap: 10px; }
+    .album-head h2 { letter-spacing: 2px; }
+    .album-body {
+      flex-direction: column;
+      gap: 10px;
+      padding: 10px 16px 12px;
+      overflow: hidden;
+    }
+    /* 上：照片区占据剩余高度；手势由脚本接管，不触发浏览器滚动/侧滑返回 */
+    .fan-area {
+      flex: 1 1 auto;
+      width: 100%;
+      min-height: 0;
+      touch-action: none;
+    }
+    /* 下：文案区固定高度，随照片切换渐显；内容过长时自身纵向滚动 */
+    .text-area {
+      flex: 0 0 auto;
+      height: clamp(150px, 27vh, 205px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: 0;
+      touch-action: pan-y;
+    }
+    .album-foot { padding: 10px 14px; font-size: 11px; }
+    .lightbox { padding: 40px 14px 18px; }
+    .lightbox-img { max-width: 96vw; max-height: 66vh; }
+  }
+
+  /* 触屏设备没有悬停：禁用「鼠标划过书脊」的位移，避免点完一本书后书架歪着不走 */
+  @media (hover: none) {
+    .book:hover { transform: none; }
+    .book:hover ~ .book { transform: none; }
+    .book:has(~ .book:hover) { transform: none; }
   }
 
   /* ============ 移动端适配 ============ */
@@ -1433,6 +1466,18 @@
   const volCountEl = document.getElementById("volCount");
   if (volCountEl) volCountEl.textContent = String(albums.length);
 
+  // 底栏提示：电脑讲鼠标、手机讲触屏（只在窄屏切换，桌面文案保持原样）
+  const hintEl = document.querySelector(".footbar .hint");
+  const HINT_DESK = hintEl ? hintEl.textContent.trim() : "";
+  const HINT_TOUCH = "点击书脊翻开相册 · 按住书脊左右拖动可调整顺序";
+
+  function applyHint() {
+    if (!hintEl) return;
+    hintEl.textContent = isNarrow() ? HINT_TOUCH : HINT_DESK;
+  }
+  applyHint();
+  window.addEventListener("resize", applyHint);
+
   albums.forEach((a, idx) => {
     const book = document.createElement("div");
     book.className = "book";
@@ -1673,23 +1718,74 @@
     moving.style.zIndex = String(zTop);
     moveCard(moving, fanPos(newPos), { pick: true, zTop, zBot });
     setCaption(fanLayer[0]);   // 文案与照片翻动同步切换（渐隐 -> 渐显）
-  }  overlay.addEventListener("wheel", (e) => {
+  }
+  overlay.addEventListener("wheel", (e) => {
     if (lightbox.classList.contains("open")) return;   // 正在看大图时不翻卡
     e.preventDefault();
     fanScroll(e.deltaY);
   }, { passive: false });
+
+  // ===== 触屏左右滑动翻照片（手机上替代鼠标滚轮；鼠标操作完全不受影响）=====
+  //   向左滑 = 下一张，向右滑 = 上一张；纵向滑动留给文案区自身滚动
+  let swipe = null;
+  let suppressClick = false;      // 滑动结束后短暂屏蔽点击，避免误开大图
+  const SWIPE_MIN = 34;           // 触发翻页的最小水平位移(px)
+  const SWIPE_FLICK = 24;         // 轻扫：位移不大但够快也算
+  const SWIPE_DOM = 1.15;         // 水平位移需大于垂直位移的倍数
+
+  overlay.addEventListener("touchstart", (e) => {
+    if (lightbox.classList.contains("open") || e.touches.length !== 1) { swipe = null; return; }
+    const t = e.touches[0];
+    swipe = { x0: t.clientX, y0: t.clientY, t0: Date.now(), dx: 0, dy: 0, axis: null };
+  }, { passive: true });
+
+  overlay.addEventListener("touchmove", (e) => {
+    if (!swipe || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    swipe.dx = t.clientX - swipe.x0;
+    swipe.dy = t.clientY - swipe.y0;
+    if (!swipe.axis && (Math.abs(swipe.dx) > 8 || Math.abs(swipe.dy) > 8)) {
+      swipe.axis = Math.abs(swipe.dx) > Math.abs(swipe.dy) * SWIPE_DOM ? "x" : "y";
+    }
+    // 横向手势：拦掉浏览器默认行为（页面滚动 / 侧滑返回），交给脚本翻照片
+    if (swipe.axis === "x" && e.cancelable) e.preventDefault();
+  }, { passive: false });
+
+  function endSwipe() {
+    if (!swipe) return;
+    const s = swipe;
+    swipe = null;
+    if (s.axis !== "x") return;
+    const dt = Math.max(1, Date.now() - s.t0);
+    const flick = Math.abs(s.dx) >= SWIPE_FLICK && Math.abs(s.dx) / dt > 0.45;
+    if (Math.abs(s.dx) < SWIPE_MIN && !flick) return;
+    fanScroll(s.dx < 0 ? 1 : -1);
+    suppressClick = true;
+    setTimeout(() => { suppressClick = false; }, 400);
+  }
+  overlay.addEventListener("touchend", endSwipe);
+  overlay.addEventListener("touchcancel", () => { swipe = null; });
+
   const footEl = document.getElementById("albumFoot");
   const closeBtn = document.getElementById("albumClose");
+
+  // 是否为窄屏（手机）版式：相册为「照片在上、文字在下」
+  function isNarrow() {
+    return window.matchMedia("(max-width: 760px)").matches;
+  }
 
   // 按弹窗可用空间等比缩放扇形舞台：大屏保持原尺寸，小屏/窄窗自动缩小并居中，避免溢出
   function fitFan() {
     const body = document.querySelector(".album-body");
-    if (!body || !fanCards.length) return;
+    const fanArea = document.querySelector(".fan-area");
+    if (!body || !fanArea || !fanCards.length) return;
+    // 窄屏时可用区域是「照片区」本身（下方还有文案区），桌面端仍按整个弹窗正文测量
+    const box = isNarrow() ? fanArea : body;
     // 回到原始尺寸，量出扇形真实可见范围（含旋转与右下偏移）
     fanStage.style.setProperty("--fan-scale", "1");
     fanStage.style.setProperty("--fan-shift", "0px, 0px");
-    const br = body.getBoundingClientRect();
-    const bs = getComputedStyle(body);
+    const br = box.getBoundingClientRect();
+    const bs = getComputedStyle(box);
     const pad = 6;
     const aL = br.left + parseFloat(bs.paddingLeft) + pad;
     const aR = br.right - parseFloat(bs.paddingRight) - pad;
@@ -1719,8 +1815,12 @@
     fanStage.style.setProperty("--fan-scale", s.toFixed(4));
     fanStage.style.setProperty("--fan-shift", tx.toFixed(1) + "px, " + ty.toFixed(1) + "px");
   }
+  let fitTimer = null;
   window.addEventListener("resize", () => {
-    if (overlay.classList.contains("open")) fitFan();
+    if (!overlay.classList.contains("open")) return;
+    fitFan();
+    clearTimeout(fitTimer);
+    fitTimer = setTimeout(fitFan, 280);   // 手机旋转/地址栏收起后布局稳定，再复算一次
   });
 
   // 右侧文案：先渐隐，换字后再渐显；immediate 用于打开相册时的首次出现
@@ -1759,9 +1859,11 @@
     currentAlbum = a;
     titleEl.textContent = a.name;
     metaEl.textContent = "收录于《我的足迹》 · " + a.photos.length + " 张";
+    // 提示语随输入方式切换：电脑=鼠标滚轮上下，手机=触屏左右滑动
+    const tip = isNarrow() ? "左右滑动切换照片" : "鼠标滚轮上下滑动查看不同照片";
     footEl.textContent = a.photos.some((p) => p.src)
-      ? "鼠标滚轮上下滑动查看不同照片 · 点击照片即可查看大图"
-      : "鼠标滚轮上下滑动查看不同照片";
+      ? tip + " · 点击照片即可查看大图"
+      : tip;
 
     fanStage.innerHTML = a.photos.map((p, i) => `
       <div class="photo-card${p.src ? " has-photo" : ""}" style="--p1:${p.p1 || shade(a.c, -55 - i * 4)};--p2:${p.p2 || shade(a.c, 30 + i * 6)}">
@@ -1826,6 +1928,7 @@
 
   // 相册里点击卡片：有真实照片就打开大图（没照片的省份不受影响）
   fanStage.addEventListener("click", (e) => {
+    if (suppressClick) return;              // 刚做完滑动手势，不算点击
     const card = e.target.closest(".photo-card");
     if (!card) return;
     const idx = fanCards.indexOf(card);
