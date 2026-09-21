@@ -729,6 +729,28 @@
     /* 首页底栏：整体往下压，和上方的书脊拉开距离，横向滑动时不容易蹭到书 */
     .stage { padding-bottom: 14px; }
     .footbar { margin-top: clamp(36px, 7vh, 68px); }
+
+    /* 书架横向拉动条：加厚 + 与书脊留出空隙，手机上更好按住拖动 */
+    .books-row {
+      padding-bottom: 10px;
+      scrollbar-width: auto;
+      scrollbar-color: auto;
+    }
+    .books-row::-webkit-scrollbar { height: 18px; }
+    .books-row::-webkit-scrollbar-track { background: transparent; }
+    .books-row::-webkit-scrollbar-thumb {
+      background: rgba(60, 80, 100, .3);
+      border-radius: 9px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+  }
+
+  /* 特别矮的屏（<=620px 高，如 320x568）收紧间距，别让底栏掉到屏幕外 */
+  @media (max-width: 760px) and (max-height: 620px) {
+    .stage { padding-bottom: 8px; }
+    .footbar { margin-top: 22px; }
+    .books-row { padding-bottom: 8px; }
   }
 
   /* 触屏设备没有悬停：禁用「鼠标划过书脊」的位移，避免点完一本书后书架歪着不走 */
